@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Explorador 16x16 MMO</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        #coords {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #0f0;
+            text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+        }
+
+        #status {
+            position: absolute;
+            top: 50px;
+            left: 20px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        #resetBtn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: transparent;
+            color: #666;
+            border: 1px solid #444;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #resetBtn:hover {
+            color: white;
+            border-color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .controls-hint {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #444;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="coords">PARCELA [0, 0]</div>
+        <div id="status">Conectando al servidor...</div>
+        <button id="resetBtn" class="interactive">Reiniciar</button>
+        <div class="controls-hint">WASD para moverte • Objetivo: [15, 15] • Tú eres el BLANCO</div>
+    </div>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Configuración e Inicialización de Firebase ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- Variables del Juego ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const coordsDisplay = document.getElementById('coords');
+        const statusDisplay = document.getElementById('status');
+        
+        const PLAYER_SIZE = 20;
+        const SPEED = 5;
+        const MAP_SIZE = 16;
+        
+        // Imagen de fondo (Parcela Final)
+        const finalBgImage = new Image();
+        finalBgImage.src = "https://i.pinimg.com/1200x/c9/e3/db/c9e3db61df66fb2b052e7e6bd479f247.jpg";
+
+        let player = {
+            x: window.innerWidth / 2 - 10,
+            y: window.innerHeight / 2 - 10,
+            width: PLAYER_SIZE,
+            height: PLAYER_SIZE,
+            color: 'white', // El jugador local siempre es blanco
+            dx: 0,
+            dy: 0,
+            id: null
+        };
+
+        let mapX = 0;
+        let mapY = 0;
+        let obstacles = [];
+        let otherPlayers = {}; // Almacena otros jugadores: { uid: {x, y, mapX, mapY, color} }
+        let lastUpdate = 0; // Para controlar la frecuencia de escritura en DB
+
+        const keys = { w: false, a: false, s: false, d: false };
+
+        // --- Lógica de Autenticación y Multijugador ---
+        
+        async function initGame() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Error de autenticación:", error);
+                statusDisplay.innerText = "Error de conexión (Offline Mode)";
+            }
+        }
+
+        // Listener de autenticación
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                player.id = user.uid;
+                // Generar un color aleatorio para que otros me vean (pero yo me veo blanco)
+                const randomColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
+                player.networkColor = randomColor; 
+                
+                statusDisplay.innerText = "Conectado. Jugando en línea.";
+                statusDisplay.style.color = "#0f0";
+
+                // Escuchar cambios en la colección de jugadores
+                const playersRef = collection(db, 'artifacts', appId, 'public', 'data', 'players');
+                
+                onSnapshot(playersRef, (snapshot) => {
+                    const now = Date.now();
+                    snapshot.docChanges().forEach((change) => {
+                        const data = change.doc.data();
+                        const pid = change.doc.id;
+                        
+                        if (pid === player.id) return; // Ignorarme a mí mismo
+
+                        if (change.type === "added" || change.type === "modified") {
+                            // Solo guardar si el dato es reciente (opcional, para limpieza simple)
+                            otherPlayers[pid] = data;
+                        }
+                        if (change.type === "removed") {
+                            delete otherPlayers[pid];
+                        }
+                    });
+                }, (error) => {
+                    console.error("Error recibiendo datos:", error);
+                });
+
+                // Limpiar mi jugador al cerrar la pestaña
+                window.addEventListener('beforeunload', () => {
+                   const myDoc = doc(db, 'artifacts', appId, 'public', 'data', 'players', player.id);
+                   deleteDoc(myDoc); // Intento best-effort de borrar
+                });
+
+            } else {
+                statusDisplay.innerText = "Desconectado.";
+            }
+        });
+
+        // Función para enviar mi posición a Firebase (Throttled a 100ms)
+        function broadcastPosition() {
+            if (!player.id) return;
+            
+            const now = Date.now();
+            if (now - lastUpdate > 50) { // Actualizar cada 50ms aprox
+                const myDoc = doc(db, 'artifacts', appId, 'public', 'data', 'players', player.id);
+                setDoc(myDoc, {
+                    x: Math.round(player.x),
+                    y: Math.round(player.y),
+                    mapX: mapX,
+                    mapY: mapY,
+                    color: player.networkColor,
+                    lastSeen: now
+                }).catch(e => console.error("Error enviando pos:", e));
+                lastUpdate = now;
+            }
+        }
+
+        // --- Lógica del Juego (Canvas y Movimiento) ---
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Asegurar que el jugador no quede fuera
+            if (player.x > canvas.width) player.x = canvas.width - player.width;
+            if (player.y > canvas.height) player.y = canvas.height - player.height;
+            changeRoom(); // Regenerar obstáculos
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            mapX = 0; mapY = 0;
+            player.x = canvas.width / 2 - PLAYER_SIZE / 2;
+            player.y = canvas.height / 2 - PLAYER_SIZE / 2;
+            changeRoom();
+            document.getElementById('resetBtn').blur();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (keys.hasOwnProperty(key)) keys[key] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (keys.hasOwnProperty(key)) keys[key] = false;
+        });
+
+        function pseudoRandom(seed) {
+            let x = Math.sin(seed++) * 10000;
+            return x - Math.floor(x);
+        }
+
+        function generateRoom(mx, my) {
+            const roomObstacles = [];
+            let seed = mx * 100 + my * 1000 + 12345; 
+            if (mx === 15 && my === 15) return []; 
+            
+            const numObstacles = Math.floor(pseudoRandom(seed++) * 10) + 5;
+            for (let i = 0; i < numObstacles; i++) {
+                const w = Math.floor(pseudoRandom(seed++) * 100) + 40;
+                const h = Math.floor(pseudoRandom(seed++) * 100) + 40;
+                const x = Math.floor(pseudoRandom(seed++) * (canvas.width - w));
+                const y = Math.floor(pseudoRandom(seed++) * (canvas.height - h));
+                
+                const safeZoneSize = 150;
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                const inCenter = (x + w > centerX - safeZoneSize && x < centerX + safeZoneSize &&
+                                  y + h > centerY - safeZoneSize && y < centerY + safeZoneSize);
+                const inDoorX = (y + h > centerY - 50 && y < centerY + 50); 
+                const inDoorY = (x + w > centerX - 50 && x < centerX + 50); 
+
+                if (!inCenter && !inDoorX && !inDoorY) {
+                    roomObstacles.push({ x, y, width: w, height: h });
+                }
+            }
+            return roomObstacles;
+        }
+
+        function checkCollision(rect1, rect2) {
+            return (rect1.x < rect2.x + rect2.width &&
+                    rect1.x + rect1.width > rect2.x &&
+                    rect1.y < rect2.y + rect2.height &&
+                    rect1.y + rect1.height > rect2.y);
+        }
+
+        function update() {
+            let moved = false;
+            if (keys.w) { player.dy = -SPEED; moved = true; }
+            else if (keys.s) { player.dy = SPEED; moved = true; }
+            else player.dy = 0;
+
+            if (keys.a) { player.dx = -SPEED; moved = true; }
+            else if (keys.d) { player.dx = SPEED; moved = true; }
+            else player.dx = 0;
+
+            let nextX = player.x + player.dx;
+            let collisionX = false;
+            for (let obs of obstacles) {
+                if (checkCollision({x: nextX, y: player.y, width: player.width, height: player.height}, obs)) {
+                    collisionX = true; break;
+                }
+            }
+            if (!collisionX) player.x = nextX;
+
+            let nextY = player.y + player.dy;
+            let collisionY = false;
+            for (let obs of obstacles) {
+                if (checkCollision({x: player.x, y: nextY, width: player.width, height: player.height}, obs)) {
+                    collisionY = true; break;
+                }
+            }
+            if (!collisionY) player.y = nextY;
+
+            // Transición de pantallas
+            let changedScreen = false;
+            if (player.x > canvas.width) {
+                if (mapX < MAP_SIZE - 1) { mapX++; player.x = 0; changedScreen = true; } 
+                else { player.x = canvas.width - player.width; }
+            }
+            else if (player.x + player.width < 0) {
+                if (mapX > 0) { mapX--; player.x = canvas.width - player.width; changedScreen = true; } 
+                else { player.x = 0; }
+            }
+            else if (player.y > canvas.height) {
+                if (mapY < MAP_SIZE - 1) { mapY++; player.y = 0; changedScreen = true; } 
+                else { player.y = canvas.height - player.height; }
+            }
+            else if (player.y + player.height < 0) {
+                if (mapY > 0) { mapY--; player.y = canvas.height - player.height; changedScreen = true; } 
+                else { player.y = 0; }
+            }
+
+            if (changedScreen) changeRoom();
+
+            // Sincronizar con servidor si me he movido o cambiado de pantalla
+            if (moved || changedScreen) {
+                broadcastPosition();
+            }
+        }
+
+        function changeRoom() {
+            obstacles = generateRoom(mapX, mapY);
+            coordsDisplay.innerText = `PARCELA [${mapX}, ${mapY}]`;
+            coordsDisplay.style.color = '#fff';
+            coordsDisplay.style.textShadow = '0 0 10px white';
+            setTimeout(() => {
+                coordsDisplay.style.color = '#0f0';
+                coordsDisplay.style.textShadow = '0 0 5px rgba(0, 255, 0, 0.5)';
+            }, 300);
+            
+            // Forzar actualización al cambiar de sala para que otros sepan dónde estoy inmediatamente
+            broadcastPosition();
+        }
+
+        function draw() {
+            // --- FONDO ---
+            if (mapX === 15 && mapY === 15 && finalBgImage.complete) {
+                ctx.drawImage(finalBgImage, 0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = '#1a1a1a';
+                ctx.lineWidth = 1;
+                const gridSize = 100;
+                const offsetX = (canvas.width % gridSize) / 2;
+                const offsetY = (canvas.height % gridSize) / 2;
+                for(let i=offsetX; i<canvas.width; i+=gridSize) {
+                    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i, canvas.height); ctx.stroke();
+                }
+                for(let i=offsetY; i<canvas.height; i+=gridSize) {
+                    ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width, i); ctx.stroke();
+                }
+            }
+
+            // --- OBSTÁCULOS ---
+            if (mapX === 15 && mapY === 15) {
+                ctx.fillStyle = '#000'; 
+                ctx.strokeStyle = '#00ff00';
+            } else {
+                ctx.fillStyle = '#222';
+                ctx.strokeStyle = '#333';
+            }
+            for (let obs of obstacles) {
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+            }
+
+            // --- META ---
+            if (mapX === 15 && mapY === 15) {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(canvas.width/2 - 40, canvas.height/2 - 15, 80, 30);
+                ctx.fillStyle = '#00ff00';
+                ctx.font = 'bold 16px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText("META", canvas.width/2, canvas.height/2 + 5);
+            }
+
+            // --- OTROS JUGADORES ---
+            // Solo dibujar si están en mi misma parcela (mapX, mapY)
+            const currentTime = Date.now();
+            Object.keys(otherPlayers).forEach(pid => {
+                const p = otherPlayers[pid];
+                // Filtrar por sala y por antigüedad (si no se ha movido en 1 min, quizás es fantasma)
+                if (p.mapX === mapX && p.mapY === mapY && (currentTime - p.lastSeen < 60000)) {
+                    ctx.fillStyle = p.color || 'red';
+                    ctx.shadowBlur = 5;
+                    ctx.shadowColor = p.color || 'red';
+                    ctx.fillRect(p.x, p.y, PLAYER_SIZE, PLAYER_SIZE);
+                    
+                    // Etiqueta simple (opcional)
+                    // ctx.fillStyle = 'white';
+                    // ctx.font = '10px Arial';
+                    // ctx.fillText("P2", p.x, p.y - 5);
+                }
+            });
+
+            // --- JUGADOR LOCAL ---
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = "rgba(255, 255, 255, 0.8)";
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            ctx.shadowBlur = 0; 
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Arrancar
+        initGame();
+        changeRoom();
+        gameLoop();
+
+    </script>
+</body>
+</html>
