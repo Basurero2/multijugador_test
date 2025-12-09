@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Explorador 16x16 MMO</title>
     <style>
         body, html {
@@ -13,6 +13,7 @@
             background-color: #000;
             overflow: hidden;
             font-family: 'Courier New', Courier, monospace;
+            touch-action: none; /* Prevenir scroll y zoom en móviles */
         }
 
         canvas {
@@ -55,19 +56,22 @@
             color: #888;
         }
 
-        /* NUEVO: Contadores de jugadores */
+        /* AJUSTE: Movido debajo de "Conectado" (#status) y alineado a la izquierda */
         #player-stats {
             position: absolute;
-            top: 20px;
-            right: 160px; /* Más espacio a la izquierda del botón */
-            display: flex; /* En fila horizontal */
-            gap: 15px;    /* Espacio entre "Mundo" y "Aquí" */
-            align-items: center; /* Centrado vertical con el botón */
-            height: 36px; /* Altura similar al botón para alinear texto */
-            font-size: 0.9rem;
+            top: 75px;  /* Debajo del status */
+            left: 20px; /* Alineado a la izquierda */
+            display: flex;
+            flex-direction: column; /* En columna para que ocupe menos ancho */
+            gap: 5px;
+            font-size: 0.8rem;
             color: #ccc;
-            pointer-events: none; /* Que no bloquee clicks */
+            pointer-events: none;
+            background-color: rgba(0, 0, 0, 0.3); /* Fondo suave para legibilidad */
+            padding: 5px;
+            border-radius: 4px;
         }
+        
         .stat-highlight {
             color: #0f0;
             font-weight: bold;
@@ -87,9 +91,12 @@
             transition: all 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 1px;
+            /* Asegurar que el botón sea fácil de tocar en móvil */
+            min-width: 80px;
+            min-height: 40px;
         }
 
-        #resetBtn:hover {
+        #resetBtn:hover, #resetBtn:active {
             color: white;
             border-color: white;
             background-color: rgba(255, 255, 255, 0.1);
@@ -103,6 +110,7 @@
             font-size: 0.8rem;
             color: #444;
             user-select: none;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -120,7 +128,7 @@
         </div>
 
         <button id="resetBtn" class="interactive">Reiniciar</button>
-        <div class="controls-hint">WASD para moverte • Objetivo: [15, 15] • Tú eres el BLANCO</div>
+        <div class="controls-hint">PC: WASD • Móvil: Toca y arrastra</div>
     </div>
 
     <!-- Firebase Imports -->
@@ -134,7 +142,7 @@
         // =================================================================================
         
         const firebaseConfig = {
-            apiKey: "AIzaSyADx42-3ciE_EofRtFF5P9YG-akjXUAvks",
+           apiKey: "AIzaSyADx42-3ciE_EofRtFF5P9YG-akjXUAvks",
             authDomain: "multijugador1-a3080.firebaseapp.com",
             projectId: "multijugador1-a3080",
             storageBucket: "multijugador1-a3080.firebasestorage.app",
@@ -199,6 +207,17 @@
 
         const keys = { w: false, a: false, s: false, d: false };
 
+        // --- Variables del Joystick Flotante ---
+        const joystick = {
+            active: false,
+            originX: 0,
+            originY: 0,
+            currentX: 0,
+            currentY: 0,
+            touchId: null,
+            maxRadius: 50 // Tamaño del radio del joystick
+        };
+
         // --- Lógica de Autenticación y Multijugador ---
         
         async function initGame() {
@@ -221,13 +240,12 @@
                     statusDisplay.innerText = "● Conectado";
                     statusDisplay.style.color = "#0f0";
 
-                    // Escuchar a TODOS los jugadores
                     const playersRef = collection(db, 'juegos', appId, 'players');
                     
                     onSnapshot(playersRef, (snapshot) => {
                         const now = Date.now();
                         let totalCount = 0;
-                        let roomCount = 1; // Empieza en 1 (yo)
+                        let roomCount = 1;
 
                         snapshot.docChanges().forEach((change) => {
                             const data = change.doc.data();
@@ -243,10 +261,8 @@
                             }
                         });
 
-                        // Recalcular contadores en cada actualización
                         Object.keys(otherPlayers).forEach(pid => {
                             const p = otherPlayers[pid];
-                            // Considerar desconectado si no se actualiza en 2 minutos
                             if (now - p.lastSeen < 120000) {
                                 totalCount++;
                                 if (p.mapX === mapX && p.mapY === mapY) {
@@ -255,18 +271,13 @@
                             }
                         });
 
-                        totalOnlineDisplay.innerText = totalCount + 1; // +1 soy yo
+                        totalOnlineDisplay.innerText = totalCount + 1; 
                         roomOnlineDisplay.innerText = roomCount;
 
                     }, (error) => {
                         console.error("Error recibiendo datos:", error);
-                        if (error.code === 'permission-denied') {
-                             statusDisplay.innerText = "⚠ ERROR PERMISOS: Revisa Reglas Firestore";
-                             statusDisplay.style.color = "red";
-                        }
                     });
 
-                    // Limpieza al salir
                     window.addEventListener('beforeunload', () => {
                        const myDoc = doc(db, 'juegos', appId, 'players', player.id);
                        deleteDoc(myDoc); 
@@ -317,6 +328,7 @@
             document.getElementById('resetBtn').blur();
         });
 
+        // Controles de Teclado (PC)
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
             if (keys.hasOwnProperty(key)) keys[key] = true;
@@ -326,6 +338,50 @@
             const key = e.key.toLowerCase();
             if (keys.hasOwnProperty(key)) keys[key] = false;
         });
+
+        // --- Controles Táctiles (Joystick Flotante) ---
+        
+        window.addEventListener('touchstart', (e) => {
+            // Si ya hay un joystick activo o se toca el botón de reinicio, ignorar
+            if (joystick.active || e.target.id === 'resetBtn') return;
+
+            const touch = e.changedTouches[0];
+            joystick.active = true;
+            joystick.touchId = touch.identifier;
+            joystick.originX = touch.clientX;
+            joystick.originY = touch.clientY;
+            joystick.currentX = touch.clientX;
+            joystick.currentY = touch.clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!joystick.active) return;
+            e.preventDefault(); // Evitar scroll al arrastrar
+
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === joystick.touchId) {
+                    const touch = e.changedTouches[i];
+                    joystick.currentX = touch.clientX;
+                    joystick.currentY = touch.clientY;
+                    break;
+                }
+            }
+        }, { passive: false });
+
+        const endTouch = (e) => {
+            if (!joystick.active) return;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === joystick.touchId) {
+                    joystick.active = false;
+                    player.dx = 0;
+                    player.dy = 0;
+                    break;
+                }
+            }
+        };
+
+        window.addEventListener('touchend', endTouch);
+        window.addEventListener('touchcancel', endTouch);
 
         function pseudoRandom(seed) {
             let x = Math.sin(seed++) * 10000;
@@ -368,14 +424,38 @@
 
         function update() {
             let moved = false;
-            if (keys.w) { player.dy = -SPEED; moved = true; }
-            else if (keys.s) { player.dy = SPEED; moved = true; }
-            else player.dy = 0;
+            
+            // 1. Prioridad: Joystick Táctil
+            if (joystick.active) {
+                const dx = joystick.currentX - joystick.originX;
+                const dy = joystick.currentY - joystick.originY;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                
+                if (distance > 0) {
+                    const angle = Math.atan2(dy, dx);
+                    // Normalizar velocidad, pero permitir movimientos lentos si se mueve poco el dedo
+                    const speedMultiplier = Math.min(distance / joystick.maxRadius, 1); 
+                    
+                    player.dx = Math.cos(angle) * SPEED * speedMultiplier;
+                    player.dy = Math.sin(angle) * SPEED * speedMultiplier;
+                    moved = true;
+                } else {
+                    player.dx = 0;
+                    player.dy = 0;
+                }
+            } 
+            // 2. Fallback: Teclado (WASD)
+            else {
+                if (keys.w) { player.dy = -SPEED; moved = true; }
+                else if (keys.s) { player.dy = SPEED; moved = true; }
+                else player.dy = 0;
 
-            if (keys.a) { player.dx = -SPEED; moved = true; }
-            else if (keys.d) { player.dx = SPEED; moved = true; }
-            else player.dx = 0;
+                if (keys.a) { player.dx = -SPEED; moved = true; }
+                else if (keys.d) { player.dx = SPEED; moved = true; }
+                else player.dx = 0;
+            }
 
+            // FÍSICA Y COLISIONES
             let nextX = player.x + player.dx;
             let collisionX = false;
             for (let obs of obstacles) {
@@ -394,6 +474,7 @@
             }
             if (!collisionY) player.y = nextY;
 
+            // TRANSICIÓN DE PANTALLAS
             let changedScreen = false;
             if (player.x > canvas.width) {
                 if (mapX < MAP_SIZE - 1) { mapX++; player.x = 0; changedScreen = true; } 
@@ -429,9 +510,7 @@
                 coordsDisplay.style.textShadow = '0 0 5px rgba(0, 255, 0, 0.5)';
             }, 300);
             
-            // Actualizar contadores al cambiar de sala
             broadcastPosition();
-            // Truco visual para forzar el redibujado de la UI del contador
             if(roomOnlineDisplay) roomOnlineDisplay.innerText = "Calculando..."; 
         }
 
@@ -484,19 +563,11 @@
             const currentTime = Date.now();
             Object.keys(otherPlayers).forEach(pid => {
                 const p = otherPlayers[pid];
-                // Solo dibujar si están en MI misma parcela
                 if (p.mapX === mapX && p.mapY === mapY && (currentTime - p.lastSeen < 120000)) {
                     ctx.fillStyle = p.color || 'red';
                     ctx.shadowBlur = 5;
                     ctx.shadowColor = p.color || 'red';
                     ctx.fillRect(p.x, p.y, PLAYER_SIZE, PLAYER_SIZE);
-                    
-                    // Nombre simple (P2)
-                    /*
-                    ctx.fillStyle = 'white';
-                    ctx.font = '10px Arial';
-                    ctx.fillText("Jugador", p.x - 5, p.y - 5);
-                    */
                 }
             });
 
@@ -506,6 +577,38 @@
             ctx.shadowColor = "rgba(255, 255, 255, 0.8)";
             ctx.fillRect(player.x, player.y, player.width, player.height);
             ctx.shadowBlur = 0; 
+            
+            // DIBUJAR JOYSTICK (Si está activo)
+            if (joystick.active) {
+                ctx.lineWidth = 2;
+                
+                // Base del joystick
+                ctx.beginPath();
+                ctx.arc(joystick.originX, joystick.originY, joystick.maxRadius, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.fill();
+
+                // Palanca (Stick)
+                // Calcular posición limitada al radio
+                const dx = joystick.currentX - joystick.originX;
+                const dy = joystick.currentY - joystick.originY;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                let stickX = joystick.currentX;
+                let stickY = joystick.currentY;
+
+                if (distance > joystick.maxRadius) {
+                    const angle = Math.atan2(dy, dx);
+                    stickX = joystick.originX + Math.cos(angle) * joystick.maxRadius;
+                    stickY = joystick.originY + Math.sin(angle) * joystick.maxRadius;
+                }
+
+                ctx.beginPath();
+                ctx.arc(stickX, stickY, 20, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fill();
+            }
         }
 
         function gameLoop() {
@@ -521,4 +624,5 @@
     </script>
 </body>
 </html>
+
 
