@@ -94,7 +94,7 @@
 
     <div id="ui-layer">
         <div id="coords">PARCELA [0, 0]</div>
-        <div id="status">Conectando al servidor...</div>
+        <div id="status">Esperando configuración...</div>
         <button id="resetBtn" class="interactive">Reiniciar</button>
         <div class="controls-hint">WASD para moverte • Objetivo: [15, 15] • Tú eres el BLANCO</div>
     </div>
@@ -102,21 +102,52 @@
     <!-- Firebase Imports -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Configuración e Inicialización de Firebase ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // =================================================================================
+        //  👇👇👇 PEGA AQUÍ LO QUE COPIASTE DE FIREBASE 👇👇👇
+        // =================================================================================
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyADx42-3ciE_EofRtFF5P9YG-akjXUAvks",
+            authDomain: "multijugador1-a3080.firebaseapp.com",
+            projectId: "multijugador1-a3080",
+            storageBucket: "multijugador1-a3080.firebasestorage.app",
+            messagingSenderId: "748051007106",
+            appId: "1:748051007106:web:3fd083d6fed45cba98569b",
+        };
+
+        // =================================================================================
+        //  👆👆👆 FIN DE LA SECCIÓN A EDITAR 👆👆👆
+        // =================================================================================
+        
+        const appId = "mi-juego-mmo-v1"; 
+
+        // Inicialización segura de Firebase
+        let app, auth, db;
+        const statusDisplay = document.getElementById('status');
+
+        try {
+            // Verificamos si has pegado tus claves
+            if (firebaseConfig.apiKey === "TU_API_KEY_AQUI" || !firebaseConfig.apiKey) {
+                console.warn("⚠️ AVISO: Aún no has puesto tus claves de Firebase.");
+                statusDisplay.innerText = "Falta Configuración (Ver código línea 110)";
+                statusDisplay.style.color = "orange";
+            } else {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+            }
+        } catch (e) {
+            console.warn("Error iniciando Firebase:", e);
+            statusDisplay.innerText = "Error Configuración";
+        }
 
         // --- Variables del Juego ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const coordsDisplay = document.getElementById('coords');
-        const statusDisplay = document.getElementById('status');
         
         const PLAYER_SIZE = 20;
         const SPEED = 5;
@@ -131,87 +162,86 @@
             y: window.innerHeight / 2 - 10,
             width: PLAYER_SIZE,
             height: PLAYER_SIZE,
-            color: 'white', // El jugador local siempre es blanco
+            color: 'white',
             dx: 0,
             dy: 0,
-            id: null
+            id: null,
+            networkColor: 'white'
         };
 
         let mapX = 0;
         let mapY = 0;
         let obstacles = [];
-        let otherPlayers = {}; // Almacena otros jugadores: { uid: {x, y, mapX, mapY, color} }
-        let lastUpdate = 0; // Para controlar la frecuencia de escritura en DB
+        let otherPlayers = {}; 
+        let lastUpdate = 0;
 
         const keys = { w: false, a: false, s: false, d: false };
 
         // --- Lógica de Autenticación y Multijugador ---
         
         async function initGame() {
+            if (!auth) return; // Si no hay config, jugamos offline
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                await signInAnonymously(auth);
             } catch (error) {
                 console.error("Error de autenticación:", error);
-                statusDisplay.innerText = "Error de conexión (Offline Mode)";
+                statusDisplay.innerText = "Error Auth (Habilita 'Anónimo' en Firebase Console)";
             }
         }
 
         // Listener de autenticación
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                player.id = user.uid;
-                // Generar un color aleatorio para que otros me vean (pero yo me veo blanco)
-                const randomColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
-                player.networkColor = randomColor; 
-                
-                statusDisplay.innerText = "Conectado. Jugando en línea.";
-                statusDisplay.style.color = "#0f0";
+        if (auth) {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    player.id = user.uid;
+                    const randomColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
+                    player.networkColor = randomColor; 
+                    
+                    statusDisplay.innerText = "Conectado. Jugando en línea.";
+                    statusDisplay.style.color = "#0f0";
 
-                // Escuchar cambios en la colección de jugadores
-                const playersRef = collection(db, 'artifacts', appId, 'public', 'data', 'players');
-                
-                onSnapshot(playersRef, (snapshot) => {
-                    const now = Date.now();
-                    snapshot.docChanges().forEach((change) => {
-                        const data = change.doc.data();
-                        const pid = change.doc.id;
-                        
-                        if (pid === player.id) return; // Ignorarme a mí mismo
+                    // Escuchar cambios en la colección de jugadores
+                    const playersRef = collection(db, 'juegos', appId, 'players');
+                    
+                    onSnapshot(playersRef, (snapshot) => {
+                        const now = Date.now();
+                        snapshot.docChanges().forEach((change) => {
+                            const data = change.doc.data();
+                            const pid = change.doc.id;
+                            
+                            if (pid === player.id) return; 
 
-                        if (change.type === "added" || change.type === "modified") {
-                            // Solo guardar si el dato es reciente (opcional, para limpieza simple)
-                            otherPlayers[pid] = data;
-                        }
-                        if (change.type === "removed") {
-                            delete otherPlayers[pid];
+                            if (change.type === "added" || change.type === "modified") {
+                                otherPlayers[pid] = data;
+                            }
+                            if (change.type === "removed") {
+                                delete otherPlayers[pid];
+                            }
+                        });
+                    }, (error) => {
+                        console.error("Error recibiendo datos:", error);
+                        if (error.code === 'permission-denied') {
+                             statusDisplay.innerText = "Error Permisos (Configura Firestore Rules)";
                         }
                     });
-                }, (error) => {
-                    console.error("Error recibiendo datos:", error);
-                });
 
-                // Limpiar mi jugador al cerrar la pestaña
-                window.addEventListener('beforeunload', () => {
-                   const myDoc = doc(db, 'artifacts', appId, 'public', 'data', 'players', player.id);
-                   deleteDoc(myDoc); // Intento best-effort de borrar
-                });
+                    window.addEventListener('beforeunload', () => {
+                       const myDoc = doc(db, 'juegos', appId, 'players', player.id);
+                       deleteDoc(myDoc); 
+                    });
 
-            } else {
-                statusDisplay.innerText = "Desconectado.";
-            }
-        });
+                } else {
+                    statusDisplay.innerText = "Desconectado.";
+                }
+            });
+        }
 
-        // Función para enviar mi posición a Firebase (Throttled a 100ms)
         function broadcastPosition() {
-            if (!player.id) return;
+            if (!player.id || !db) return;
             
             const now = Date.now();
-            if (now - lastUpdate > 50) { // Actualizar cada 50ms aprox
-                const myDoc = doc(db, 'artifacts', appId, 'public', 'data', 'players', player.id);
+            if (now - lastUpdate > 50) { 
+                const myDoc = doc(db, 'juegos', appId, 'players', player.id);
                 setDoc(myDoc, {
                     x: Math.round(player.x),
                     y: Math.round(player.y),
@@ -229,10 +259,9 @@
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            // Asegurar que el jugador no quede fuera
             if (player.x > canvas.width) player.x = canvas.width - player.width;
             if (player.y > canvas.height) player.y = canvas.height - player.height;
-            changeRoom(); // Regenerar obstáculos
+            changeRoom(); 
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
@@ -322,7 +351,6 @@
             }
             if (!collisionY) player.y = nextY;
 
-            // Transición de pantallas
             let changedScreen = false;
             if (player.x > canvas.width) {
                 if (mapX < MAP_SIZE - 1) { mapX++; player.x = 0; changedScreen = true; } 
@@ -343,7 +371,6 @@
 
             if (changedScreen) changeRoom();
 
-            // Sincronizar con servidor si me he movido o cambiado de pantalla
             if (moved || changedScreen) {
                 broadcastPosition();
             }
@@ -359,12 +386,11 @@
                 coordsDisplay.style.textShadow = '0 0 5px rgba(0, 255, 0, 0.5)';
             }, 300);
             
-            // Forzar actualización al cambiar de sala para que otros sepan dónde estoy inmediatamente
             broadcastPosition();
         }
 
         function draw() {
-            // --- FONDO ---
+            // Fondo
             if (mapX === 15 && mapY === 15 && finalBgImage.complete) {
                 ctx.drawImage(finalBgImage, 0, 0, canvas.width, canvas.height);
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
@@ -385,7 +411,7 @@
                 }
             }
 
-            // --- OBSTÁCULOS ---
+            // Obstáculos
             if (mapX === 15 && mapY === 15) {
                 ctx.fillStyle = '#000'; 
                 ctx.strokeStyle = '#00ff00';
@@ -398,7 +424,7 @@
                 ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
             }
 
-            // --- META ---
+            // Meta
             if (mapX === 15 && mapY === 15) {
                 ctx.fillStyle = 'rgba(0,0,0,0.7)';
                 ctx.fillRect(canvas.width/2 - 40, canvas.height/2 - 15, 80, 30);
@@ -408,26 +434,19 @@
                 ctx.fillText("META", canvas.width/2, canvas.height/2 + 5);
             }
 
-            // --- OTROS JUGADORES ---
-            // Solo dibujar si están en mi misma parcela (mapX, mapY)
+            // Otros jugadores
             const currentTime = Date.now();
             Object.keys(otherPlayers).forEach(pid => {
                 const p = otherPlayers[pid];
-                // Filtrar por sala y por antigüedad (si no se ha movido en 1 min, quizás es fantasma)
                 if (p.mapX === mapX && p.mapY === mapY && (currentTime - p.lastSeen < 60000)) {
                     ctx.fillStyle = p.color || 'red';
                     ctx.shadowBlur = 5;
                     ctx.shadowColor = p.color || 'red';
                     ctx.fillRect(p.x, p.y, PLAYER_SIZE, PLAYER_SIZE);
-                    
-                    // Etiqueta simple (opcional)
-                    // ctx.fillStyle = 'white';
-                    // ctx.font = '10px Arial';
-                    // ctx.fillText("P2", p.x, p.y - 5);
                 }
             });
 
-            // --- JUGADOR LOCAL ---
+            // Jugador local
             ctx.fillStyle = player.color;
             ctx.shadowBlur = 15;
             ctx.shadowColor = "rgba(255, 255, 255, 0.8)";
@@ -441,12 +460,11 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // Arrancar
         initGame();
         changeRoom();
         gameLoop();
 
     </script>
 </body>
-
 </html>
+
