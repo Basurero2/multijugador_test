@@ -116,6 +116,27 @@
 </head>
 <body>
 
+    <script>
+        // Contraseña compartida para tus amigos
+        const CLAVE_SECRETA = "amigos123"; // <--- CAMBIA ESTO
+
+        let entrada = prompt("🔒 Este es un servidor privado. Ingresa la clave de acceso:");
+
+        if (entrada !== CLAVE_SECRETA) {
+        // Si falla, borramos todo el cuerpo de la página y mostramos alerta
+            document.body.innerHTML = "<h1 style='color:red; text-align:center;'>ACCESO DENEGADO 🚫</h1>";
+            alert("Clave incorrecta. No puedes entrar.");
+        // Opcional: Redirigirlo a Google para que se vaya
+            window.location.href = "https://www.google.com";
+        // Lanza un error para detener el resto del script (importante)
+        throw new Error("Acceso no autorizado");
+        }
+
+    // ... aquí abajo sigue el resto de tu código normal de Firebase ...
+    </script>
+
+    
+
     <canvas id="gameCanvas"></canvas>
 
     <div id="ui-layer">
@@ -624,5 +645,6 @@
     </script>
 </body>
 </html>
+
 
 
