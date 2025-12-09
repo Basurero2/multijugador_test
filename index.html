@@ -55,6 +55,24 @@
             color: #888;
         }
 
+        /* NUEVO: Contadores de jugadores */
+        #player-stats {
+            position: absolute;
+            top: 20px;
+            right: 160px; /* Más espacio a la izquierda del botón */
+            display: flex; /* En fila horizontal */
+            gap: 15px;    /* Espacio entre "Mundo" y "Aquí" */
+            align-items: center; /* Centrado vertical con el botón */
+            height: 36px; /* Altura similar al botón para alinear texto */
+            font-size: 0.9rem;
+            color: #ccc;
+            pointer-events: none; /* Que no bloquee clicks */
+        }
+        .stat-highlight {
+            color: #0f0;
+            font-weight: bold;
+        }
+
         #resetBtn {
             position: absolute;
             top: 20px;
@@ -95,6 +113,12 @@
     <div id="ui-layer">
         <div id="coords">PARCELA [0, 0]</div>
         <div id="status">Esperando configuración...</div>
+        
+        <div id="player-stats">
+            <div>Mundo: <span id="total-online" class="stat-highlight">1</span></div>
+            <div>Aquí: <span id="room-online" class="stat-highlight">1</span></div>
+        </div>
+
         <button id="resetBtn" class="interactive">Reiniciar</button>
         <div class="controls-hint">WASD para moverte • Objetivo: [15, 15] • Tú eres el BLANCO</div>
     </div>
@@ -106,7 +130,7 @@
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // =================================================================================
-        //  👇👇👇 PEGA AQUÍ LO QUE COPIASTE DE FIREBASE 👇👇👇
+        //  👇👇👇 ¡ASEGÚRATE DE QUE TUS CLAVES SIGAN AQUÍ! 👇👇👇
         // =================================================================================
         
         const firebaseConfig = {
@@ -119,20 +143,19 @@
         };
 
         // =================================================================================
-        //  👆👆👆 FIN DE LA SECCIÓN A EDITAR 👆👆👆
-        // =================================================================================
         
         const appId = "mi-juego-mmo-v1"; 
 
         // Inicialización segura de Firebase
         let app, auth, db;
         const statusDisplay = document.getElementById('status');
+        const totalOnlineDisplay = document.getElementById('total-online');
+        const roomOnlineDisplay = document.getElementById('room-online');
 
         try {
-            // Verificamos si has pegado tus claves
             if (firebaseConfig.apiKey === "TU_API_KEY_AQUI" || !firebaseConfig.apiKey) {
                 console.warn("⚠️ AVISO: Aún no has puesto tus claves de Firebase.");
-                statusDisplay.innerText = "Falta Configuración (Ver código línea 110)";
+                statusDisplay.innerText = "Falta Configuración (Edita el código)";
                 statusDisplay.style.color = "orange";
             } else {
                 app = initializeApp(firebaseConfig);
@@ -153,7 +176,6 @@
         const SPEED = 5;
         const MAP_SIZE = 16;
         
-        // Imagen de fondo (Parcela Final)
         const finalBgImage = new Image();
         finalBgImage.src = "https://i.pinimg.com/1200x/c9/e3/db/c9e3db61df66fb2b052e7e6bd479f247.jpg";
 
@@ -180,7 +202,7 @@
         // --- Lógica de Autenticación y Multijugador ---
         
         async function initGame() {
-            if (!auth) return; // Si no hay config, jugamos offline
+            if (!auth) return;
             try {
                 await signInAnonymously(auth);
             } catch (error) {
@@ -189,7 +211,6 @@
             }
         }
 
-        // Listener de autenticación
         if (auth) {
             onAuthStateChanged(auth, (user) => {
                 if (user) {
@@ -197,14 +218,17 @@
                     const randomColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
                     player.networkColor = randomColor; 
                     
-                    statusDisplay.innerText = "Conectado. Jugando en línea.";
+                    statusDisplay.innerText = "● Conectado";
                     statusDisplay.style.color = "#0f0";
 
-                    // Escuchar cambios en la colección de jugadores
+                    // Escuchar a TODOS los jugadores
                     const playersRef = collection(db, 'juegos', appId, 'players');
                     
                     onSnapshot(playersRef, (snapshot) => {
                         const now = Date.now();
+                        let totalCount = 0;
+                        let roomCount = 1; // Empieza en 1 (yo)
+
                         snapshot.docChanges().forEach((change) => {
                             const data = change.doc.data();
                             const pid = change.doc.id;
@@ -218,20 +242,39 @@
                                 delete otherPlayers[pid];
                             }
                         });
+
+                        // Recalcular contadores en cada actualización
+                        Object.keys(otherPlayers).forEach(pid => {
+                            const p = otherPlayers[pid];
+                            // Considerar desconectado si no se actualiza en 2 minutos
+                            if (now - p.lastSeen < 120000) {
+                                totalCount++;
+                                if (p.mapX === mapX && p.mapY === mapY) {
+                                    roomCount++;
+                                }
+                            }
+                        });
+
+                        totalOnlineDisplay.innerText = totalCount + 1; // +1 soy yo
+                        roomOnlineDisplay.innerText = roomCount;
+
                     }, (error) => {
                         console.error("Error recibiendo datos:", error);
                         if (error.code === 'permission-denied') {
-                             statusDisplay.innerText = "Error Permisos (Configura Firestore Rules)";
+                             statusDisplay.innerText = "⚠ ERROR PERMISOS: Revisa Reglas Firestore";
+                             statusDisplay.style.color = "red";
                         }
                     });
 
+                    // Limpieza al salir
                     window.addEventListener('beforeunload', () => {
                        const myDoc = doc(db, 'juegos', appId, 'players', player.id);
                        deleteDoc(myDoc); 
                     });
 
                 } else {
-                    statusDisplay.innerText = "Desconectado.";
+                    statusDisplay.innerText = "Desconectado";
+                    statusDisplay.style.color = "#888";
                 }
             });
         }
@@ -254,7 +297,7 @@
             }
         }
 
-        // --- Lógica del Juego (Canvas y Movimiento) ---
+        // --- Lógica del Juego ---
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
@@ -386,7 +429,10 @@
                 coordsDisplay.style.textShadow = '0 0 5px rgba(0, 255, 0, 0.5)';
             }, 300);
             
+            // Actualizar contadores al cambiar de sala
             broadcastPosition();
+            // Truco visual para forzar el redibujado de la UI del contador
+            if(roomOnlineDisplay) roomOnlineDisplay.innerText = "Calculando..."; 
         }
 
         function draw() {
@@ -438,11 +484,19 @@
             const currentTime = Date.now();
             Object.keys(otherPlayers).forEach(pid => {
                 const p = otherPlayers[pid];
-                if (p.mapX === mapX && p.mapY === mapY && (currentTime - p.lastSeen < 60000)) {
+                // Solo dibujar si están en MI misma parcela
+                if (p.mapX === mapX && p.mapY === mapY && (currentTime - p.lastSeen < 120000)) {
                     ctx.fillStyle = p.color || 'red';
                     ctx.shadowBlur = 5;
                     ctx.shadowColor = p.color || 'red';
                     ctx.fillRect(p.x, p.y, PLAYER_SIZE, PLAYER_SIZE);
+                    
+                    // Nombre simple (P2)
+                    /*
+                    ctx.fillStyle = 'white';
+                    ctx.font = '10px Arial';
+                    ctx.fillText("Jugador", p.x - 5, p.y - 5);
+                    */
                 }
             });
 
