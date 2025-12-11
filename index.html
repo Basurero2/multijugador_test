@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Explorador 16x16 MMO</title>
+    <title>Explorador 3x3 MMO - Producción</title>
     <style>
         body, html {
             margin: 0;
@@ -13,7 +13,9 @@
             background-color: #000;
             overflow: hidden;
             font-family: 'Courier New', Courier, monospace;
-            touch-action: none; /* Prevenir scroll y zoom en móviles */
+            touch-action: none; 
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         canvas {
@@ -22,6 +24,7 @@
             top: 0;
             left: 0;
             z-index: 0;
+            cursor: crosshair;
         }
 
         #ui-layer {
@@ -32,6 +35,20 @@
             height: 100%;
             pointer-events: none;
             z-index: 10;
+            transition: opacity 0.3s;
+        }
+
+        /* CLASE PARA OCULTAR INTERFAZ */
+        #ui-layer.ui-hidden > *:not(.top-controls) {
+            display: none !important;
+        }
+        #ui-layer.ui-hidden .top-controls > *:not(#toggle-ui-btn) {
+            display: none !important;
+        }
+        #ui-layer.ui-hidden #toggle-ui-btn {
+            opacity: 0.3;
+            background-color: transparent;
+            border-color: rgba(255,255,255,0.3);
         }
 
         .interactive {
@@ -54,20 +71,22 @@
             left: 20px;
             font-size: 0.8rem;
             color: #888;
+            background-color: rgba(0,0,0,0.5);
+            padding: 2px 5px;
+            border-radius: 3px;
         }
 
-        /* AJUSTE: Movido debajo de "Conectado" (#status) y alineado a la izquierda */
         #player-stats {
             position: absolute;
-            top: 75px;  /* Debajo del status */
-            left: 20px; /* Alineado a la izquierda */
+            top: 80px; 
+            left: 20px; 
             display: flex;
-            flex-direction: column; /* En columna para que ocupe menos ancho */
+            flex-direction: column;
             gap: 5px;
             font-size: 0.8rem;
             color: #ccc;
             pointer-events: none;
-            background-color: rgba(0, 0, 0, 0.3); /* Fondo suave para legibilidad */
+            background-color: rgba(0, 0, 0, 0.3);
             padding: 5px;
             border-radius: 4px;
         }
@@ -77,40 +96,378 @@
             font-weight: bold;
         }
 
-        #resetBtn {
+        /* --- BARRA DE HERRAMIENTAS VERTICAL --- */
+        .top-controls {
             position: absolute;
             top: 20px;
             right: 20px;
-            background-color: transparent;
-            color: #666;
-            border: 1px solid #444;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            /* Asegurar que el botón sea fácil de tocar en móvil */
-            min-width: 80px;
-            min-height: 40px;
+            display: flex;
+            flex-direction: column; 
+            gap: 15px; 
+            align-items: center;
+            pointer-events: auto; 
+            z-index: 150; 
         }
 
-        #resetBtn:hover, #resetBtn:active {
+        .game-btn {
+            background-color: rgba(0, 0, 0, 0.6);
+            color: #ccc;
+            border: 2px solid #444;
+            padding: 0;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 1.2rem; 
+            transition: all 0.2s ease;
+            width: 45px;  
+            height: 45px; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px; 
+            backdrop-filter: blur(2px);
+        }
+
+        .game-btn:hover, .game-btn:active {
             color: white;
-            border-color: white;
-            background-color: rgba(255, 255, 255, 0.1);
+            border-color: #fff;
+            background-color: rgba(50, 50, 50, 0.9);
+            transform: scale(1.05);
+        }
+
+        @media (max-width: 600px) {
+            .top-controls {
+                top: 15px;
+                right: 15px;
+                gap: 10px;
+            }
+            .game-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 1.1rem;
+            }
+        }
+
+        /* --- BARRA DE EDICIÓN FLOTANTE (PC) --- */
+        #editor-controls {
+            display: none; 
+            position: absolute;
+            top: 20px; 
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #0f0;
+            border-radius: 8px;
+            padding: 10px;
+            gap: 10px;
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+            white-space: nowrap;
+        }
+
+        #editor-controls.active {
+            display: flex;
+        }
+
+        @media (max-width: 600px) {
+            #editor-controls {
+                display: none !important;
+            }
+        }
+
+        .editor-btn {
+            background: #222;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .editor-btn.cancel {
+            border-color: #f55;
+            color: #f55;
+        }
+        
+        .editor-info {
+            color: #0f0;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            margin-right: 10px;
+        }
+        .key-hint {
+            color: #888;
+            font-size: 0.7rem;
+            margin-left: 5px;
+            border: 1px solid #444;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        /* --- HERRAMIENTAS MÓVILES --- */
+        #mobile-tools {
+            display: none; 
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            gap: 20px;
+            z-index: 100;
+        }
+
+        #mobile-tools.active {
+            display: flex;
+        }
+
+        .tool-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: rgba(20, 20, 20, 0.9);
+            border: 3px solid #555;
+            font-size: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            -webkit-tap-highlight-color: transparent;
+            position: relative;
+        }
+
+        .tool-btn.active-tool {
+            transform: scale(1.1);
+            border-color: #0f0;
+            box-shadow: 0 0 20px #0f0;
+            background: rgba(0, 50, 0, 0.8);
+            z-index: 101;
+        }
+
+        .tool-btn#tool-erase.active-tool {
+            border-color: #f00;
+            box-shadow: 0 0 20px #f00;
+            background: rgba(50, 0, 0, 0.8);
+        }
+        
+        .tool-key {
+            position: absolute;
+            bottom: -20px;
+            font-size: 12px;
+            color: #aaa;
+            background: #000;
+            padding: 2px 5px;
+            border-radius: 4px;
+        }
+        @media (max-width: 600px) {
+            .tool-key { display: none; }
+        }
+
+        /* --- BOTÓN FLOTANTE DE CHAT --- */
+        #toggle-chat-btn {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #666;
+            color: #ccc;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 50; 
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #toggle-chat-btn:hover, #toggle-chat-btn:active {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: #fff;
+            color: #fff;
+        }
+        #toggle-chat-btn.has-new {
+            border-color: #0f0;
+            color: #0f0;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(0, 255, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0); }
+        }
+
+
+        /* --- ESTILOS DEL CHAT --- */
+        #chat-container {
+            display: none; 
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 300px;
+            max-width: 60%; 
+            height: 200px; 
+            flex-direction: column;
+            pointer-events: none;
+            transition: all 0.3s ease; 
+            border-radius: 8px;
+            z-index: 60; 
+        }
+
+        #chat-container.visible {
+            display: flex;
+            pointer-events: auto; 
+            background-color: rgba(0, 0, 0, 0.8); 
+            padding: 10px;
+            border: 1px solid #333;
+        }
+
+        #chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse; 
+            margin-bottom: 8px;
+            pointer-events: auto; 
+            scrollbar-width: none; 
+            -ms-overflow-style: none;
+            mask-image: linear-gradient(to bottom, transparent, black 10%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent, black 10%);
+        }
+        
+        #chat-container.visible #chat-messages {
+            mask-image: none;
+            -webkit-mask-image: none;
+        }
+
+        #chat-messages::-webkit-scrollbar { 
+            display: none; 
+        }
+
+        #chat-controls {
+            display: flex;
+            gap: 5px;
+            pointer-events: auto;
+        }
+
+        .chat-msg {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 4px;
+            text-shadow: 1px 1px 2px black;
+            word-wrap: break-word;
+        }
+        
+        .chat-name {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        #chat-input {
+            flex: 1; 
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #444;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        #chat-input:focus {
+            border-color: #0f0;
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        .chat-btn {
+            background: rgba(30, 30, 30, 0.8);
+            color: #ccc;
+            border: 1px solid #444;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 0 10px;
+            font-weight: bold;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 40px; 
+            min-height: 35px;
+        }
+        .chat-btn:hover, .chat-btn:active {
+            background: rgba(50, 50, 50, 0.9);
+            border-color: #888;
+            color: white;
+        }
+        #chat-send {
+            color: #0f0;
+            background: rgba(0, 50, 0, 0.3);
+        }
+        #chat-send:hover, #chat-send:active {
+            border-color: #0f0;
+            background: rgba(0, 100, 0, 0.8);
+        }
+        
+        #chat-close {
+            color: #f55;
+            background: rgba(50, 0, 0, 0.3);
+            border-color: #844;
+        }
+
+        /* --- MENSAJE DE ERROR --- */
+        #error-overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(50, 0, 0, 0.95);
+            border: 2px solid red;
+            padding: 20px;
+            color: white;
+            z-index: 1000; 
+            max-width: 90%;
+            text-align: center;
+            border-radius: 8px;
+            pointer-events: auto;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.5);
+        }
+        #error-domain {
+            background: #222;
+            padding: 15px;
+            margin: 15px 0;
+            word-break: break-all;
+            font-family: monospace;
+            border: 1px solid #555;
+            user-select: text; 
+            -webkit-user-select: text;
+            color: #0f0;
+            font-size: 0.85rem;
         }
 
         .controls-hint {
             position: absolute;
             bottom: 20px;
-            width: 100%;
-            text-align: center;
+            right: 20px; 
+            width: auto;
+            text-align: right;
             font-size: 0.8rem;
             color: #444;
             user-select: none;
             pointer-events: none;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        @media (max-width: 600px) {
+            .controls-hint {
+                display: none;
+            }
         }
     </style>
 </head>
@@ -118,7 +475,7 @@
 
     <script>
         // Contraseña compartida para tus amigos
-        const CLAVE_SECRETA = "LSA"; // <--- CAMBIA ESTO
+        const CLAVE_SECRETA = "amigos123"; // <--- CAMBIA ESTO
 
         let entrada = prompt("🔒 Este es un servidor privado. Ingresa la clave de acceso:");
 
@@ -135,62 +492,107 @@
     // ... aquí abajo sigue el resto de tu código normal de Firebase ...
     </script>
 
-    
 
     <canvas id="gameCanvas"></canvas>
 
     <div id="ui-layer">
         <div id="coords">PARCELA [0, 0]</div>
-        <div id="status">Esperando configuración...</div>
+        <div id="status">Esperando...</div>
         
         <div id="player-stats">
             <div>Mundo: <span id="total-online" class="stat-highlight">1</span></div>
             <div>Aquí: <span id="room-online" class="stat-highlight">1</span></div>
         </div>
 
-        <button id="resetBtn" class="interactive">Reiniciar</button>
-        <div class="controls-hint">PC: WASD • Móvil: Toca y arrastra</div>
+        <!-- BARRA DE HERRAMIENTAS VERTICAL -->
+        <div class="top-controls">
+            <button id="toggle-ui-btn" class="interactive game-btn" title="Ocultar/Mostrar Interfaz (H)">👁️</button>
+            <button id="toggleBuildBtn" class="interactive game-btn" title="Modo Editor (Q)">🔨</button>
+            <button id="resetBtn" class="interactive game-btn" title="Reiniciar">🔄</button>
+        </div>
+
+        <!-- BARRA FLOTANTE DEL EDITOR (PC) -->
+        <div id="editor-controls" class="interactive">
+            <button id="closeEditorBtn" class="editor-btn cancel">Salir [Q]</button>
+        </div>
+
+        <!-- BARRA FLOTANTE DEL EDITOR (MÓVIL Y PC) -->
+        <div id="mobile-tools" class="interactive">
+            <div id="tool-build" class="tool-btn active-tool" title="Herramienta Construir">
+                🧱 <span class="tool-key">B</span>
+            </div>
+            <div id="tool-erase" class="tool-btn" title="Herramienta Borrar">
+                ❌ <span class="tool-key">X</span>
+            </div>
+        </div>
+
+        <!-- BOTÓN FLOTANTE CHAT -->
+        <button id="toggle-chat-btn" class="interactive" title="Chat (C / Enter)">💬</button>
+
+        <!-- ERROR OVERLAY -->
+        <div id="error-overlay"></div>
+        
+        <!-- CHAT (Oculto por defecto) -->
+        <div id="chat-container">
+            <div id="chat-messages"></div>
+            <div id="chat-controls">
+                <button id="chat-close" type="button" class="interactive chat-btn" title="Cerrar Chat (Esc)">✕</button>
+                <input type="text" id="chat-input" class="interactive" placeholder="Chat..." maxlength="40">
+                <button id="chat-send" type="button" class="interactive chat-btn">➤</button>
+            </div>
+        </div>
+
+        <div class="controls-hint" id="hints">PC: WASD • Click: Disparar • Editor: Q</div>
     </div>
 
     <!-- Firebase Imports -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // =================================================================================
-        //  👇👇👇 ¡ASEGÚRATE DE QUE TUS CLAVES SIGAN AQUÍ! 👇👇👇
+        //  CONFIGURACIÓN PARA PRODUCCIÓN (Tus Credenciales)
         // =================================================================================
-        
         const firebaseConfig = {
-           apiKey: "AIzaSyADx42-3ciE_EofRtFF5P9YG-akjXUAvks",
+            apiKey: "AIzaSyADx42-3ciE_EofRtFF5P9YG-akjXUAvks",
             authDomain: "multijugador1-a3080.firebaseapp.com",
             projectId: "multijugador1-a3080",
             storageBucket: "multijugador1-a3080.firebasestorage.app",
             messagingSenderId: "748051007106",
-            appId: "1:748051007106:web:3fd083d6fed45cba98569b",
+            appId: "1:748051007106:web:3fd083d6fed45cba98569b"
         };
-
-        // =================================================================================
         
-        const appId = "mi-juego-mmo-v1"; 
+        const appId = "mmo-v1"; // Identificador simple para tus colecciones
 
         // Inicialización segura de Firebase
         let app, auth, db;
         const statusDisplay = document.getElementById('status');
         const totalOnlineDisplay = document.getElementById('total-online');
         const roomOnlineDisplay = document.getElementById('room-online');
+        const chatContainer = document.getElementById('chat-container');
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send'); 
+        const chatCloseBtn = document.getElementById('chat-close');
+        const toggleChatBtn = document.getElementById('toggle-chat-btn');
+        const chatMessages = document.getElementById('chat-messages');
+        const errorOverlay = document.getElementById('error-overlay');
+        const uiLayer = document.getElementById('ui-layer');
+        
+        // Botones nuevos
+        const toggleUiBtn = document.getElementById('toggle-ui-btn');
+        const toggleBuildBtn = document.getElementById('toggleBuildBtn');
+        const editorControls = document.getElementById('editor-controls');
+        const closeEditorBtn = document.getElementById('closeEditorBtn');
+        const mobileTools = document.getElementById('mobile-tools');
+        const toolBuild = document.getElementById('tool-build');
+        const toolErase = document.getElementById('tool-erase');
+        const hintDiv = document.getElementById('hints');
 
         try {
-            if (firebaseConfig.apiKey === "TU_API_KEY_AQUI" || !firebaseConfig.apiKey) {
-                console.warn("⚠️ AVISO: Aún no has puesto tus claves de Firebase.");
-                statusDisplay.innerText = "Falta Configuración (Edita el código)";
-                statusDisplay.style.color = "orange";
-            } else {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-            }
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
         } catch (e) {
             console.warn("Error iniciando Firebase:", e);
             statusDisplay.innerText = "Error Configuración";
@@ -203,7 +605,7 @@
         
         const PLAYER_SIZE = 20;
         const SPEED = 5;
-        const MAP_SIZE = 16;
+        const MAP_SIZE = 3; 
         
         const finalBgImage = new Image();
         finalBgImage.src = "https://i.pinimg.com/1200x/c9/e3/db/c9e3db61df66fb2b052e7e6bd479f247.jpg";
@@ -223,12 +625,21 @@
         let mapX = 0;
         let mapY = 0;
         let obstacles = [];
+        let userBlocks = {}; 
         let otherPlayers = {}; 
         let lastUpdate = 0;
+        let activeBubbles = []; 
+        let chatVisible = false;
+        
+        // --- Variables de Construcción ---
+        let isBuildMode = false;
+        let isMouseDown = false;
+        let mouseX = 0;
+        let mouseY = 0;
+        let selectedTool = 'build'; 
 
         const keys = { w: false, a: false, s: false, d: false };
 
-        // --- Variables del Joystick Flotante ---
         const joystick = {
             active: false,
             originX: 0,
@@ -236,18 +647,326 @@
             currentX: 0,
             currentY: 0,
             touchId: null,
-            maxRadius: 50 // Tamaño del radio del joystick
+            maxRadius: 50
         };
+
+        // --- Lógica de Interfaz General (Ocultar/Mostrar) ---
+        toggleUiBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            uiLayer.classList.toggle('ui-hidden');
+        });
+        
+        toggleUiBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            uiLayer.classList.toggle('ui-hidden');
+        });
+
+        // --- Lógica de Interfaz Chat (Toggle) ---
+        function setChatVisibility(visible) {
+            chatVisible = visible;
+            if (visible) {
+                chatContainer.classList.add('visible');
+                toggleChatBtn.style.display = 'none'; // Ocultar botón flotante
+                toggleChatBtn.classList.remove('has-new'); // Quitar alerta
+                if (!('ontouchstart' in window)) {
+                    chatInput.focus();
+                }
+            } else {
+                chatContainer.classList.remove('visible');
+                toggleChatBtn.style.display = 'flex'; // Mostrar botón flotante
+                chatInput.blur();
+            }
+        }
+
+        toggleChatBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            setChatVisibility(true);
+        });
+        
+        toggleChatBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            setChatVisibility(true);
+        });
+
+        chatCloseBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            setChatVisibility(false);
+        });
+        chatCloseBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            setChatVisibility(false);
+        });
+
+
+        // --- Lógica del Modo Editor ---
+
+        function toggleBuildMode() {
+            isBuildMode = !isBuildMode;
+            if (isBuildMode) {
+                editorControls.classList.add('active'); 
+                mobileTools.classList.add('active');    
+                toggleBuildBtn.style.backgroundColor = "#228b22"; 
+                hintDiv.innerText = "EDITOR: Arrastra para pintar";
+                joystick.active = false; 
+                player.dx = 0;
+                player.dy = 0;
+                if(chatVisible) setChatVisibility(false);
+            } else {
+                editorControls.classList.remove('active');
+                mobileTools.classList.remove('active');
+                toggleBuildBtn.style.backgroundColor = "";
+                hintDiv.innerText = "PC: WASD • Editor: Q";
+            }
+        }
+
+        toggleBuildBtn.addEventListener('click', toggleBuildMode);
+        closeEditorBtn.addEventListener('click', toggleBuildMode);
+
+        // Selección de Herramienta
+        function selectTool(tool) {
+            selectedTool = tool;
+            if (tool === 'build') {
+                toolBuild.classList.add('active-tool');
+                toolErase.classList.remove('active-tool');
+            } else {
+                toolErase.classList.add('active-tool');
+                toolBuild.classList.remove('active-tool');
+            }
+        }
+
+        toolBuild.addEventListener('click', () => selectTool('build'));
+        toolErase.addEventListener('click', () => selectTool('erase'));
+        
+        toolBuild.addEventListener('touchstart', (e) => { e.preventDefault(); selectTool('build'); });
+        toolErase.addEventListener('touchstart', (e) => { e.preventDefault(); selectTool('erase'); });
+
+        window.addEventListener('contextmenu', (e) => {
+            if (isBuildMode) e.preventDefault();
+        });
+
+        // Manejo del Mouse (PC)
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.interactive') && !uiLayer.classList.contains('ui-hidden')) return;
+
+            if (isBuildMode) {
+                // MODO EDITOR
+                isMouseDown = true;
+                updateMousePos(e.clientX, e.clientY);
+                if (e.button === 2) {
+                    handleEraseTool();
+                } else if (e.button === 0) {
+                    if (selectedTool === 'build') handleBuildTool();
+                    else handleEraseTool();
+                }
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isBuildMode) {
+                updateMousePos(e.clientX, e.clientY);
+                if (isMouseDown) {
+                    if (selectedTool === 'build') handleBuildTool();
+                    else handleEraseTool();
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => isMouseDown = false);
+
+        // Manejo Táctil (MÓVIL)
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.target.closest('.interactive') && !uiLayer.classList.contains('ui-hidden')) return;
+            if (e.target.id === 'toggle-chat-btn' && toggleChatBtn.style.display !== 'none') return;
+
+            const touch = e.changedTouches[0];
+            
+            if (isBuildMode) {
+                e.preventDefault(); // Prevent scroll in editor
+                isMouseDown = true;
+                updateMousePos(touch.clientX, touch.clientY);
+                if (selectedTool === 'build') handleBuildTool();
+                else handleEraseTool();
+            } else {
+                // Joystick
+                e.preventDefault();
+                joystick.active = true;
+                joystick.touchId = touch.identifier;
+                joystick.originX = touch.clientX;
+                joystick.originY = touch.clientY;
+                joystick.currentX = touch.clientX;
+                joystick.currentY = touch.clientY;
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            const touch = e.changedTouches[0];
+            
+            if (isBuildMode) {
+                e.preventDefault();
+                updateMousePos(touch.clientX, touch.clientY);
+                if (isMouseDown) {
+                    if (selectedTool === 'build') handleBuildTool();
+                    else handleEraseTool();
+                }
+            } else {
+                if (!joystick.active) return;
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === joystick.touchId) {
+                        joystick.currentX = e.changedTouches[i].clientX;
+                        joystick.currentY = e.changedTouches[i].clientY;
+                        break;
+                    }
+                }
+            }
+        }, { passive: false });
+
+        const endTouch = (e) => {
+            if (isBuildMode) {
+                isMouseDown = false;
+            } else {
+                if (!joystick.active) return;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === joystick.touchId) {
+                        joystick.active = false;
+                        player.dx = 0;
+                        player.dy = 0;
+                        break;
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('touchend', endTouch);
+        window.addEventListener('touchcancel', endTouch);
+
+        function updateMousePos(clientX, clientY) {
+            mouseX = clientX;
+            mouseY = clientY;
+        }
+
+        async function handleBuildTool() {
+            if (!player.id || !db) return;
+
+            const gridX = Math.floor(mouseX / PLAYER_SIZE) * PLAYER_SIZE;
+            const gridY = Math.floor(mouseY / PLAYER_SIZE) * PLAYER_SIZE;
+
+            const pBox = getHitbox(player);
+            const blockBox = { x: gridX, y: gridY, width: PLAYER_SIZE, height: PLAYER_SIZE };
+            
+            if (checkCollision(pBox, blockBox)) return;
+
+            const existingBlock = Object.values(userBlocks).find(b => 
+                b.mapX === mapX && b.mapY === mapY && 
+                b.x === gridX && b.y === gridY
+            );
+            if (existingBlock) return;
+
+            const existingObstacle = obstacles.find(obs => 
+                checkCollision(blockBox, obs)
+            );
+            if (existingObstacle) return;
+
+            try {
+                const tempId = `temp_${Date.now()}_${Math.random()}`;
+                userBlocks[tempId] = {
+                    x: gridX, y: gridY, width: PLAYER_SIZE, height: PLAYER_SIZE,
+                    mapX, mapY, authorId: player.id, color: '#8B4513'
+                };
+
+                await addDoc(collection(db, 'blocks'), {
+                    x: gridX,
+                    y: gridY,
+                    width: PLAYER_SIZE,
+                    height: PLAYER_SIZE,
+                    mapX: mapX,
+                    mapY: mapY,
+                    authorId: player.id,
+                    color: '#8B4513',
+                    timestamp: serverTimestamp()
+                });
+            } catch (e) {
+                console.error("Error build:", e);
+            }
+        }
+
+        async function handleEraseTool() {
+            const gridX = Math.floor(mouseX / PLAYER_SIZE) * PLAYER_SIZE;
+            const gridY = Math.floor(mouseY / PLAYER_SIZE) * PLAYER_SIZE;
+
+            const blockEntry = Object.entries(userBlocks).find(([id, b]) => 
+                b.mapX === mapX && b.mapY === mapY && 
+                b.x === gridX && b.y === gridY
+            );
+
+            if (blockEntry) {
+                const [bid, blockData] = blockEntry;
+                delete userBlocks[bid]; 
+                
+                try {
+                    await deleteDoc(doc(db, 'blocks', bid));
+                } catch (e) {
+                    console.error("Error delete:", e);
+                }
+            }
+        }
+
+        // --- Lógica de Chat ---
+
+        async function sendMessage() {
+            const text = chatInput.value.trim();
+            if (!text || !db || !player.id) return;
+            
+            chatInput.value = '';
+            setTimeout(() => chatInput.focus(), 10);
+
+            try {
+                await addDoc(collection(db, 'chat'), {
+                    text: text,
+                    playerId: player.id,
+                    color: player.networkColor || 'white',
+                    timestamp: serverTimestamp()
+                });
+            } catch (e) {
+                console.error("Error enviando mensaje:", e);
+                chatInput.value = text;
+            }
+        }
+
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        chatSendBtn.addEventListener('click', (e) => {
+            e.preventDefault(); 
+            sendMessage();
+        });
+
+        chatSendBtn.addEventListener('touchend', (e) => {
+            e.preventDefault(); 
+            sendMessage();
+        });
 
         // --- Lógica de Autenticación y Multijugador ---
         
         async function initGame() {
             if (!auth) return;
             try {
+                // Autenticación estándar para hosting externo
                 await signInAnonymously(auth);
             } catch (error) {
                 console.error("Error de autenticación:", error);
-                statusDisplay.innerText = "Error Auth (Habilita 'Anónimo' en Firebase Console)";
+                
+                // Detección específica de errores comunes al desplegar
+                if (error.code === 'auth/operation-not-allowed') {
+                    statusDisplay.innerText = "Error: Habilita 'Anónimo' en Auth";
+                    statusDisplay.style.color = "red";
+                } else if (error.message && error.message.includes('configurations')) {
+                    statusDisplay.innerText = "Revisa tu API Key/Config";
+                    statusDisplay.style.color = "orange";
+                } else {
+                    statusDisplay.innerText = "Error Auth: " + error.code;
+                }
             }
         }
 
@@ -260,8 +979,10 @@
                     
                     statusDisplay.innerText = "● Conectado";
                     statusDisplay.style.color = "#0f0";
+                    errorOverlay.style.display = 'none';
 
-                    const playersRef = collection(db, 'juegos', appId, 'players');
+                    // 1. Escuchar Jugadores (Directo a la colección 'players')
+                    const playersRef = collection(db, 'players');
                     
                     onSnapshot(playersRef, (snapshot) => {
                         const now = Date.now();
@@ -294,13 +1015,50 @@
 
                         totalOnlineDisplay.innerText = totalCount + 1; 
                         roomOnlineDisplay.innerText = roomCount;
-
                     }, (error) => {
-                        console.error("Error recibiendo datos:", error);
+                        console.error("Error Jugadores:", error);
+                        if (error.code === 'permission-denied') {
+                            statusDisplay.innerText = "Faltan Reglas Firestore";
+                            statusDisplay.style.color = "red";
+                        }
                     });
 
+                    // 2. Escuchar Bloques
+                    const blocksQuery = query(collection(db, 'blocks'), limit(300));
+                    
+                    onSnapshot(blocksQuery, (snapshot) => {
+                        snapshot.docChanges().forEach((change) => {
+                            const data = change.doc.data();
+                            const bid = change.doc.id;
+
+                            if (change.type === 'added' || change.type === 'modified') {
+                                userBlocks[bid] = data;
+                            }
+                            if (change.type === 'removed') {
+                                delete userBlocks[bid];
+                            }
+                        });
+                    }, (error) => console.warn("Error bloques:", error));
+
+                    // 3. Escuchar Chat
+                    const chatQuery = query(collection(db, 'chat'), orderBy('timestamp', 'desc'), limit(50));
+                    
+                    onSnapshot(chatQuery, (snapshot) => {
+                        snapshot.docChanges().forEach((change) => {
+                            if (change.type === 'added') {
+                                const msg = change.doc.data();
+                                displayChatMessage(msg);
+                                addChatBubble(msg.playerId, msg.text);
+                                
+                                if (!chatVisible) {
+                                    toggleChatBtn.classList.add('has-new');
+                                }
+                            }
+                        });
+                    }, (error) => {});
+
                     window.addEventListener('beforeunload', () => {
-                       const myDoc = doc(db, 'juegos', appId, 'players', player.id);
+                       const myDoc = doc(db, 'players', player.id);
                        deleteDoc(myDoc); 
                     });
 
@@ -311,12 +1069,40 @@
             });
         }
 
+        function displayChatMessage(msg) {
+            const div = document.createElement('div');
+            div.className = 'chat-msg';
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'chat-name';
+            nameSpan.style.color = msg.color;
+            nameSpan.textContent = "●"; 
+
+            const textSpan = document.createElement('span');
+            textSpan.textContent = msg.text;
+
+            div.appendChild(nameSpan);
+            div.appendChild(textSpan);
+            
+            chatMessages.insertBefore(div, chatMessages.firstChild);
+        }
+
+        function addChatBubble(pid, text) {
+            activeBubbles = activeBubbles.filter(b => b.playerId !== pid);
+            activeBubbles.push({
+                playerId: pid,
+                text: text,
+                createdAt: Date.now(),
+                life: 4000 
+            });
+        }
+
         function broadcastPosition() {
             if (!player.id || !db) return;
             
             const now = Date.now();
             if (now - lastUpdate > 50) { 
-                const myDoc = doc(db, 'juegos', appId, 'players', player.id);
+                const myDoc = doc(db, 'players', player.id);
                 setDoc(myDoc, {
                     x: Math.round(player.x),
                     y: Math.round(player.y),
@@ -324,7 +1110,9 @@
                     mapY: mapY,
                     color: player.networkColor,
                     lastSeen: now
-                }).catch(e => console.error("Error enviando pos:", e));
+                }).catch(e => {
+                    if(e.code !== 'permission-denied') console.error("Error enviando pos:", e)
+                });
                 lastUpdate = now;
             }
         }
@@ -349,10 +1137,39 @@
             document.getElementById('resetBtn').blur();
         });
 
-        // Controles de Teclado (PC)
+        // NUEVOS ATAJOS DE TECLADO
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
+
+            // Manejo especial si el chat tiene el foco (para poder salir con ESC)
+            if (document.activeElement === chatInput) {
+                if (key === 'escape') {
+                    setChatVisibility(false);
+                    canvas.focus(); // Devolver foco al canvas
+                }
+                return; // No ejecutar otros atajos de juego mientras se escribe
+            }
+
+            // Movimiento
             if (keys.hasOwnProperty(key)) keys[key] = true;
+
+            // Atajos Globales
+            if (key === 'q') toggleBuildMode(); // Q para entrar/salir del editor
+            if (key === 'h') { // H para ocultar/mostrar UI
+                 uiLayer.classList.toggle('ui-hidden');
+            }
+            
+            // Atajo CHAT (Enter o C)
+            if (key === 'enter' || key === 'c') {
+                e.preventDefault();
+                setChatVisibility(!chatVisible);
+            }
+
+            // Atajos específicos del Modo Editor
+            if (isBuildMode) {
+                if (key === '1' || key === 'b') selectTool('build');
+                if (key === '2' || key === 'e' || key === 'x') selectTool('erase');
+            }
         });
 
         window.addEventListener('keyup', (e) => {
@@ -360,11 +1177,13 @@
             if (keys.hasOwnProperty(key)) keys[key] = false;
         });
 
-        // --- Controles Táctiles (Joystick Flotante) ---
-        
+        // Joystick
         window.addEventListener('touchstart', (e) => {
-            // Si ya hay un joystick activo o se toca el botón de reinicio, ignorar
-            if (joystick.active || e.target.id === 'resetBtn') return;
+            if (isBuildMode) return; 
+            if (joystick.active || 
+                e.target.closest('#chat-container') || 
+                (e.target.closest('.interactive') && !uiLayer.classList.contains('ui-hidden'))) return;
+            if (e.target.id === 'toggle-chat-btn') return;
 
             const touch = e.changedTouches[0];
             joystick.active = true;
@@ -376,8 +1195,9 @@
         }, { passive: false });
 
         window.addEventListener('touchmove', (e) => {
+            if (isBuildMode) return;
             if (!joystick.active) return;
-            e.preventDefault(); // Evitar scroll al arrastrar
+            e.preventDefault(); 
 
             for (let i = 0; i < e.changedTouches.length; i++) {
                 if (e.changedTouches[i].identifier === joystick.touchId) {
@@ -389,20 +1209,7 @@
             }
         }, { passive: false });
 
-        const endTouch = (e) => {
-            if (!joystick.active) return;
-            for (let i = 0; i < e.changedTouches.length; i++) {
-                if (e.changedTouches[i].identifier === joystick.touchId) {
-                    joystick.active = false;
-                    player.dx = 0;
-                    player.dy = 0;
-                    break;
-                }
-            }
-        };
-
-        window.addEventListener('touchend', endTouch);
-        window.addEventListener('touchcancel', endTouch);
+        
 
         function pseudoRandom(seed) {
             let x = Math.sin(seed++) * 10000;
@@ -412,7 +1219,8 @@
         function generateRoom(mx, my) {
             const roomObstacles = [];
             let seed = mx * 100 + my * 1000 + 12345; 
-            if (mx === 15 && my === 15) return []; 
+            
+            if (mx === MAP_SIZE - 1 && my === MAP_SIZE - 1) return []; 
             
             const numObstacles = Math.floor(pseudoRandom(seed++) * 10) + 5;
             for (let i = 0; i < numObstacles; i++) {
@@ -436,17 +1244,28 @@
             return roomObstacles;
         }
 
-        function checkCollision(rect1, rect2) {
-            return (rect1.x < rect2.x + rect2.width &&
-                    rect1.x + rect1.width > rect2.x &&
-                    rect1.y < rect2.y + rect2.height &&
-                    rect1.y + rect1.height > rect2.y);
+        function getHitbox(entity) {
+            const margin = 2;
+            return {
+                x: entity.x + margin,
+                y: entity.y + margin,
+                width: entity.width - (margin * 2),
+                height: entity.height - (margin * 2)
+            };
+        }
+
+        function checkCollision(box1, box2) {
+            return (box1.x < box2.x + box2.width &&
+                    box1.x + box1.width > box2.x &&
+                    box1.y < box2.y + box2.height &&
+                    box1.y + box1.height > box2.y);
         }
 
         function update() {
+            if (isBuildMode) return;
+
             let moved = false;
             
-            // 1. Prioridad: Joystick Táctil
             if (joystick.active) {
                 const dx = joystick.currentX - joystick.originX;
                 const dy = joystick.currentY - joystick.originY;
@@ -454,7 +1273,6 @@
                 
                 if (distance > 0) {
                     const angle = Math.atan2(dy, dx);
-                    // Normalizar velocidad, pero permitir movimientos lentos si se mueve poco el dedo
                     const speedMultiplier = Math.min(distance / joystick.maxRadius, 1); 
                     
                     player.dx = Math.cos(angle) * SPEED * speedMultiplier;
@@ -465,8 +1283,7 @@
                     player.dy = 0;
                 }
             } 
-            // 2. Fallback: Teclado (WASD)
-            else {
+            else if (document.activeElement !== chatInput) {
                 if (keys.w) { player.dy = -SPEED; moved = true; }
                 else if (keys.s) { player.dy = SPEED; moved = true; }
                 else player.dy = 0;
@@ -474,28 +1291,36 @@
                 if (keys.a) { player.dx = -SPEED; moved = true; }
                 else if (keys.d) { player.dx = SPEED; moved = true; }
                 else player.dx = 0;
+            } else {
+                player.dx = 0;
+                player.dy = 0;
             }
 
-            // FÍSICA Y COLISIONES
+            const localBlocks = Object.values(userBlocks).filter(b => b.mapX === mapX && b.mapY === mapY);
+            const allObstacles = [...obstacles, ...localBlocks];
+
             let nextX = player.x + player.dx;
+            let playerHitboxX = getHitbox({x: nextX, y: player.y, width: player.width, height: player.height});
             let collisionX = false;
-            for (let obs of obstacles) {
-                if (checkCollision({x: nextX, y: player.y, width: player.width, height: player.height}, obs)) {
+            
+            for (let obs of allObstacles) {
+                if (checkCollision(playerHitboxX, obs)) {
                     collisionX = true; break;
                 }
             }
             if (!collisionX) player.x = nextX;
 
             let nextY = player.y + player.dy;
+            let playerHitboxY = getHitbox({x: player.x, y: nextY, width: player.width, height: player.height});
             let collisionY = false;
-            for (let obs of obstacles) {
-                if (checkCollision({x: player.x, y: nextY, width: player.width, height: player.height}, obs)) {
+
+            for (let obs of allObstacles) {
+                if (checkCollision(playerHitboxY, obs)) {
                     collisionY = true; break;
                 }
             }
             if (!collisionY) player.y = nextY;
 
-            // TRANSICIÓN DE PANTALLAS
             let changedScreen = false;
             if (player.x > canvas.width) {
                 if (mapX < MAP_SIZE - 1) { mapX++; player.x = 0; changedScreen = true; } 
@@ -536,8 +1361,7 @@
         }
 
         function draw() {
-            // Fondo
-            if (mapX === 15 && mapY === 15 && finalBgImage.complete) {
+            if (mapX === MAP_SIZE - 1 && mapY === MAP_SIZE - 1 && finalBgImage.complete && finalBgImage.naturalWidth !== 0) {
                 ctx.drawImage(finalBgImage, 0, 0, canvas.width, canvas.height);
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -557,8 +1381,29 @@
                 }
             }
 
-            // Obstáculos
-            if (mapX === 15 && mapY === 15) {
+            if (isBuildMode) {
+                ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
+                ctx.lineWidth = 1;
+                for(let x=0; x<canvas.width; x+=PLAYER_SIZE) {
+                    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, canvas.height); ctx.stroke();
+                }
+                for(let y=0; y<canvas.height; y+=PLAYER_SIZE) {
+                    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width, y); ctx.stroke();
+                }
+
+                const gridX = Math.floor(mouseX / PLAYER_SIZE) * PLAYER_SIZE;
+                const gridY = Math.floor(mouseY / PLAYER_SIZE) * PLAYER_SIZE;
+                
+                const toolColor = (selectedTool === 'erase') ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 255, 0, 0.3)';
+                const strokeColor = (selectedTool === 'erase') ? '#f00' : '#0f0';
+
+                ctx.fillStyle = toolColor;
+                ctx.fillRect(gridX, gridY, PLAYER_SIZE, PLAYER_SIZE);
+                ctx.strokeStyle = strokeColor;
+                ctx.strokeRect(gridX, gridY, PLAYER_SIZE, PLAYER_SIZE);
+            }
+
+            if (mapX === MAP_SIZE - 1 && mapY === MAP_SIZE - 1) {
                 ctx.fillStyle = '#000'; 
                 ctx.strokeStyle = '#00ff00';
             } else {
@@ -570,8 +1415,22 @@
                 ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
             }
 
-            // Meta
-            if (mapX === 15 && mapY === 15) {
+            const localBlocks = Object.values(userBlocks).filter(b => b.mapX === mapX && b.mapY === mapY);
+            for (let block of localBlocks) {
+                ctx.fillStyle = block.color || '#8B4513';
+                ctx.fillRect(block.x, block.y, block.width, block.height);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.strokeRect(block.x, block.y, block.width, block.height);
+                
+                ctx.beginPath();
+                ctx.moveTo(block.x, block.y);
+                ctx.lineTo(block.x + block.width, block.y + block.height);
+                ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+                ctx.stroke();
+            }
+
+            if (mapX === MAP_SIZE - 1 && mapY === MAP_SIZE - 1) {
                 ctx.fillStyle = 'rgba(0,0,0,0.7)';
                 ctx.fillRect(canvas.width/2 - 40, canvas.height/2 - 15, 80, 30);
                 ctx.fillStyle = '#00ff00';
@@ -580,8 +1439,56 @@
                 ctx.fillText("META", canvas.width/2, canvas.height/2 + 5);
             }
 
-            // Otros jugadores
             const currentTime = Date.now();
+            
+            function drawBubble(text, x, y) {
+                ctx.font = "12px Arial";
+                const textWidth = ctx.measureText(text).width;
+                const pad = 5;
+                const width = textWidth + pad * 2;
+                const height = 20;
+                const bx = x + PLAYER_SIZE/2 - width/2;
+                const by = y - 25;
+                const radius = 5;
+
+                ctx.save(); 
+                
+                ctx.beginPath();
+                ctx.moveTo(bx + radius, by);
+                ctx.lineTo(bx + width - radius, by);
+                ctx.quadraticCurveTo(bx + width, by, bx + width, by + radius);
+                ctx.lineTo(bx + width, by + height - radius);
+                ctx.quadraticCurveTo(bx + width, by + height, bx + width - radius, by + height);
+                ctx.lineTo(bx + radius, by + height);
+                ctx.quadraticCurveTo(bx, by + height, bx, by + height - radius);
+                ctx.lineTo(bx, by + radius);
+                ctx.quadraticCurveTo(bx, by, bx + radius, by);
+                ctx.closePath();
+
+                ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 1;
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(x + PLAYER_SIZE/2 - 5, by + height);
+                ctx.lineTo(x + PLAYER_SIZE/2 + 5, by + height);
+                ctx.lineTo(x + PLAYER_SIZE/2, by + height + 5);
+                ctx.closePath();
+                ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = "black";
+                ctx.textAlign = "center"; 
+                ctx.fillText(text, x + PLAYER_SIZE/2, by + 14);
+                
+                ctx.restore();
+            }
+
+            activeBubbles = activeBubbles.filter(b => currentTime - b.createdAt < b.life);
+
             Object.keys(otherPlayers).forEach(pid => {
                 const p = otherPlayers[pid];
                 if (p.mapX === mapX && p.mapY === mapY && (currentTime - p.lastSeen < 120000)) {
@@ -589,21 +1496,23 @@
                     ctx.shadowBlur = 5;
                     ctx.shadowColor = p.color || 'red';
                     ctx.fillRect(p.x, p.y, PLAYER_SIZE, PLAYER_SIZE);
+                    
+                    const bubble = activeBubbles.find(b => b.playerId === pid);
+                    if (bubble) drawBubble(bubble.text, p.x, p.y);
                 }
             });
 
-            // Jugador local
             ctx.fillStyle = player.color;
             ctx.shadowBlur = 15;
             ctx.shadowColor = "rgba(255, 255, 255, 0.8)";
             ctx.fillRect(player.x, player.y, player.width, player.height);
             ctx.shadowBlur = 0; 
+
+            const myBubble = activeBubbles.find(b => b.playerId === player.id);
+            if (myBubble) drawBubble(myBubble.text, player.x, player.y);
             
-            // DIBUJAR JOYSTICK (Si está activo)
-            if (joystick.active) {
+            if (joystick.active && !isBuildMode) {
                 ctx.lineWidth = 2;
-                
-                // Base del joystick
                 ctx.beginPath();
                 ctx.arc(joystick.originX, joystick.originY, joystick.maxRadius, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -611,8 +1520,6 @@
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
                 ctx.fill();
 
-                // Palanca (Stick)
-                // Calcular posición limitada al radio
                 const dx = joystick.currentX - joystick.originX;
                 const dy = joystick.currentY - joystick.originY;
                 const distance = Math.sqrt(dx*dx + dy*dy);
@@ -645,6 +1552,7 @@
     </script>
 </body>
 </html>
+
 
 
 
